@@ -51,10 +51,28 @@ typedef struct
 	void * state ;
 } OPUS_PRIVATE ;
 
-static int	ogg_opus_read_header (SF_PRIVATE * psf) ;
+static int	ogg_opus_read_header (SF_PRIVATE * psf, int log_data) ;
 static int	ogg_opus_close (SF_PRIVATE *psf) ;
 static int	ogg_opus_byterate (SF_PRIVATE *psf) ;
 static sf_count_t	ogg_opus_length (SF_PRIVATE *psf) ;
+
+typedef struct
+{	int id ;
+	const char *name ;
+} STR_PAIRS ;
+
+static STR_PAIRS ogg_opus_metatypes [] =
+{	{	SF_STR_TITLE,		"Title" },
+	{	SF_STR_COPYRIGHT,	"Copyright" },
+	{	SF_STR_SOFTWARE,	"Software" },
+	{	SF_STR_ARTIST,		"Artist" },
+	{	SF_STR_COMMENT,		"Comment" },
+	{	SF_STR_DATE,		"Date" },
+	{	SF_STR_ALBUM,		"Album" },
+	{	SF_STR_LICENSE,		"License" },
+	{	SF_STR_TRACKNUMBER,	"Tracknumber" },
+	{	SF_STR_GENRE, 		"Genre" },
+} ;
 
 int
 ogg_opus_open (SF_PRIVATE *psf)
@@ -78,7 +96,7 @@ ogg_opus_open (SF_PRIVATE *psf)
 	{	/* Call this here so it only gets called once, so no memory is leaked. */
 		ogg_sync_init (&odata->osync) ;
 
-		if ((error = ogg_opus_read_header (psf)))
+		if ((error = ogg_opus_read_header (psf, 1)))
 			return error ;
 
 #if 0
@@ -130,7 +148,7 @@ ogg_opus_open (SF_PRIVATE *psf)
 } /* ogg_opus_open */
 
 static int
-ogg_opus_read_header (SF_PRIVATE * psf)
+ogg_opus_read_header (SF_PRIVATE * psf, int log_data)
 {
 	OGG_PRIVATE *odata = (OGG_PRIVATE *) psf->container_data ;
 	OPUS_PRIVATE *opdata = (OPUS_PRIVATE *) psf->codec_data ;
@@ -252,7 +270,34 @@ ogg_opus_read_header (SF_PRIVATE * psf)
 		} ;
 	} ;
 
-	psf->sf.samplerate = 48000 ; //opus is always 48000
+	if (log_data)
+	{	int printed_metadata_msg = 0 ;
+		int k ;
+
+		psf_log_printf (psf, "Bitstream is %d channel, %D Hz\n", opdata->head.channel_count, 48000) ; //opus always outputs 48000
+		psf_log_printf (psf, "Encoded by : %s\n", opdata->tags.vendor) ;
+
+		/* Throw the comments plus a few lines about the bitstream we're decoding. */
+		for (k = 0 ; k < ARRAY_LEN (ogg_opus_metatypes) ; k++)
+		{	const char *dd ;
+
+			dd = opus_tags_query (&opdata->tags, ogg_opus_metatypes [k].name, 0) ;
+			if (dd == NULL)
+				continue ;
+
+			if (printed_metadata_msg == 0)
+			{	psf_log_printf (psf, "Metadata :\n") ;
+				printed_metadata_msg = 1 ;
+			} ;
+
+			psf_store_string (psf, ogg_opus_metatypes [k].id, dd) ;
+			psf_log_printf (psf, "  %-10s : %s\n", ogg_opus_metatypes [k].name, dd) ;
+		} ;
+
+		psf_log_printf (psf, "End\n") ;
+	} ;
+
+	psf->sf.samplerate = 48000 ; //opus always outputs 48000
 	psf->sf.channels = opdata->head.channel_count ;
 	psf->sf.format = SF_FORMAT_OGG | SF_FORMAT_OPUS ;
 
@@ -520,7 +565,7 @@ ogg_opus_length (SF_PRIVATE *psf)
 	length = ogg_opus_length_aux (psf) ;
 
 	psf_fseek (psf, 12, SEEK_SET) ;
-	if ((error = ogg_opus_read_header (psf)) != 0)
+	if ((error = ogg_opus_read_header (psf, 0)) != 0)
 		psf->error = error ;
 
 	return length ;
