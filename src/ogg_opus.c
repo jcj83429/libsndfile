@@ -51,10 +51,16 @@ typedef struct
 	void * state ;
 } OPUS_PRIVATE ;
 
+typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float **) ;
+
 static int	ogg_opus_read_header (SF_PRIVATE * psf, int log_data) ;
 static int	ogg_opus_close (SF_PRIVATE *psf) ;
 static int	ogg_opus_byterate (SF_PRIVATE *psf) ;
 static sf_count_t	ogg_opus_length (SF_PRIVATE *psf) ;
+//static sf_count_t	ogg_opus_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len) ;
+//static sf_count_t	ogg_opus_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len) ;
+//static sf_count_t	ogg_opus_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len) ;
+//static sf_count_t	ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func *transfn) ;
 
 typedef struct
 {	int id ;
@@ -147,6 +153,26 @@ ogg_opus_open (SF_PRIVATE *psf)
 	return error ;
 } /* ogg_opus_open */
 
+
+static int
+ogg_opus_get_next_page (SF_PRIVATE *psf, ogg_sync_state * osync, ogg_page *page)
+{	static const int CHUNK_SIZE = 4500 ;
+
+	while (ogg_sync_pageout (osync, page) <= 0)
+	{	char * buffer = ogg_sync_buffer (osync, CHUNK_SIZE) ;
+		int bytes = psf_fread (buffer, 1, 4096, psf) ;
+
+		if (bytes <= 0)
+		{	ogg_sync_wrote (osync, 0) ;
+			return 0 ;
+			} ;
+
+		ogg_sync_wrote (osync, bytes) ;
+		} ;
+
+	return 1 ;
+} /* ogg_opus_get_next_page */
+
 static int
 ogg_opus_read_header (SF_PRIVATE * psf, int log_data)
 {
@@ -230,18 +256,12 @@ ogg_opus_read_header (SF_PRIVATE * psf, int log_data)
 
 	i = 0 ;			/* Count of number of packets read */
 	while (i < 1) {
-		int result = ogg_sync_pageout (&odata->osync, &odata->opage) ;
+		int result = ogg_opus_get_next_page (psf, &odata->osync, &odata->opage) ;
 		if (result == 0)
-		{	/* Need more data */
-			buffer = ogg_sync_buffer (&odata->osync, 4096) ;
-			bytes = psf_fread (buffer, 1, 4096, psf) ;
-
-			if (bytes == 0 && i < 1)
-			{	psf_log_printf (psf, "End of file before finding all Opus headers!\n") ;
-				return SFE_MALFORMED_FILE ;
-				} ;
-			nn = ogg_sync_wrote (&odata->osync, bytes) ;
-			}
+		{
+			psf_log_printf (psf, "End of file before finding all Opus headers!\n") ;
+			return SFE_MALFORMED_FILE ;
+		}
 		else if (result == 1)
 		{	/*
 			**	Don't complain about missing or corrupt data yet. We'll
@@ -470,25 +490,6 @@ find_stream_processor (stream_set *set, ogg_page *page)
 	return stream ;
 } /* find_stream_processor */
 
-static int
-ogg_opus_length_get_next_page (SF_PRIVATE *psf, ogg_sync_state * osync, ogg_page *page)
-{	static const int CHUNK_SIZE = 4500 ;
-
-	while (ogg_sync_pageout (osync, page) <= 0)
-	{	char * buffer = ogg_sync_buffer (osync, CHUNK_SIZE) ;
-		int bytes = psf_fread (buffer, 1, 4096, psf) ;
-
-		if (bytes <= 0)
-		{	ogg_sync_wrote (osync, 0) ;
-			return 0 ;
-			} ;
-
-		ogg_sync_wrote (osync, bytes) ;
-		} ;
-
-	return 1 ;
-} /* ogg_opus_length_get_next_page */
-
 static sf_count_t
 ogg_opus_length_aux (SF_PRIVATE * psf)
 {
@@ -503,7 +504,7 @@ ogg_opus_length_aux (SF_PRIVATE * psf)
 
 	ogg_sync_init (&osync) ;
 
-	while (ogg_opus_length_get_next_page (psf, &osync, &page))
+	while (ogg_opus_get_next_page (psf, &osync, &page))
 	{
 		stream_processor *p = find_stream_processor (processors, &page) ;
 
