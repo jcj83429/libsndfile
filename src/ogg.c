@@ -85,6 +85,9 @@ ogg_open (SF_PRIVATE *psf)
 		case SF_FORMAT_OGG | SF_FORMAT_PCM_16 :
 		case SF_FORMAT_OGG | SF_FORMAT_PCM_24 :
 			return ogg_pcm_open (psf) ;
+
+		case SF_FORMAT_OGG | SF_FORMAT_OPUS:
+			return ogg_opus_open (psf) ;
 #endif
 
 		default :
@@ -189,6 +192,9 @@ ogg_stream_classify (SF_PRIVATE *psf, OGG_PRIVATE* odata)
 			psf_log_printf (psf, "Detected Ogg/PCM data. This is not supported yet.\n") ;
 			return SFE_UNIMPLEMENTED ;
 
+		case OGG_OPUS:
+			psf->sf.format = SF_FORMAT_OGG | SF_FORMAT_OPUS ;
+			return 0 ;
 		default :
 			break ;
 		} ;
@@ -210,7 +216,8 @@ static struct
 	{	"fLaC",			"Flac0",	4, OGG_FLAC0 },
 	{	"PCM     ",		"PCM",		8, OGG_PCM },
 	{	"Speex",		"Speex",	5, OGG_SPEEX },
-	{	"\001vorbis",	"Vorbis",	7, OGG_VORBIS },
+	{	"\001vorbis",		"Vorbis",	7, OGG_VORBIS },
+	{	"OpusHead",		"Opus",		8, OGG_OPUS },
 } ;
 
 static int

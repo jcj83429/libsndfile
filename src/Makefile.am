@@ -25,7 +25,7 @@ check_PROGRAMS = test_main G72x/g72x_test
 COMMON = common.c file_io.c command.c pcm.c ulaw.c alaw.c float32.c \
 		double64.c ima_adpcm.c ms_adpcm.c gsm610.c dwvw.c vox_adpcm.c \
 		interleave.c strings.c dither.c cart.c broadcast.c audio_detect.c \
- 		ima_oki_adpcm.c ima_oki_adpcm.h alac.c chunk.c ogg.c chanmap.c \
+		ima_oki_adpcm.c ima_oki_adpcm.h alac.c chunk.c ogg.c chanmap.c \
 		windows.c id3.c $(WIN_VERSION_FILE)
 
 FILESPECIFIC = sndfile.c aiff.c au.c avr.c caf.c dwd.c flac.c g72x.c htk.c ircam.c \

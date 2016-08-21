@@ -311,9 +311,15 @@ if test -n "$PKG_CONFIG" ; then
 
 		if test x$enable_experimental = xyes ; then
 			PKG_CHECK_MOD_VERSION(SPEEX, speex >= 1.2, ac_cv_speex=yes, ac_cv_speex=no)
+			PKG_CHECK_MOD_VERSION(OPUS, opus >= 1.0, ac_cv_opus=yes, ac_cv_opus=no)
+			PKG_CHECK_MOD_VERSION(OPUSFILE, opusfile >= 0.5, ac_cv_opus=yes, ac_cv_opus=no)
 		else
 			SPEEX_CFLAGS=""
 			SPEEX_LIBS=""
+			OPUS_CFLAGS=""
+			OPUS_LIBS=""
+			OPUSFILE_CFLAGS=""
+			OPUSFILE_LIBS=""
 			fi
 
 		# Vorbis versions earlier than 1.2.3 have bugs that cause the libsndfile
@@ -328,8 +334,8 @@ if test -n "$PKG_CONFIG" ; then
 		HAVE_EXTERNAL_XIPH_LIBS=1
 		enable_external_libs=yes
 
-		EXTERNAL_XIPH_CFLAGS="$FLAC_CFLAGS $OGG_CFLAGS $VORBIS_CFLAGS $VORBISENC_CFLAGS $SPEEX_CFLAGS"
-		EXTERNAL_XIPH_LIBS="$FLAC_LIBS $OGG_LIBS $VORBIS_LIBS $VORBISENC_LIBS $SPEEX_LIBS "
+		EXTERNAL_XIPH_CFLAGS="$FLAC_CFLAGS $OGG_CFLAGS $VORBIS_CFLAGS $VORBISENC_CFLAGS $SPEEX_CFLAGS $OPUS_CFLAGS $OPUSFILE_CFLAGS"
+		EXTERNAL_XIPH_LIBS="$FLAC_LIBS $OGG_LIBS $VORBIS_LIBS $VORBISENC_LIBS $SPEEX_LIBS $OPUS_LIBS $OPUSFILE_LIBS"
 	else
 		echo
 		AC_MSG_WARN([[*** One or more of the external libraries (ie libflac, libogg and]])

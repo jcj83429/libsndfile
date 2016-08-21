@@ -155,6 +155,7 @@ enum
 {	/* Work in progress. */
 	SF_FORMAT_SPEEX			= 0x5000000,
 	SF_FORMAT_OGGFLAC		= 0x5000001,
+	SF_FORMAT_OPUS			= 0x5000002,
 
 	/* Formats supported read only. */
 	SF_FORMAT_TXW			= 0x4030000,		/* Yamaha TX16 sampler file */
