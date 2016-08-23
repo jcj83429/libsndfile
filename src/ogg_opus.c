@@ -56,6 +56,9 @@ typedef struct
 	sf_count_t pcm_len ;
 	sf_count_t pcm_pos ;
 	sf_count_t preskip_skipped ;
+
+	/* Absolute sample position in the file */
+	sf_count_t abs_pos ;
 } OPUS_PRIVATE ;
 
 typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float *) ;
@@ -63,6 +66,7 @@ typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float *) ;
 static int	ogg_opus_read_header (SF_PRIVATE * psf, int log_data) ;
 static int	ogg_opus_close (SF_PRIVATE *psf) ;
 static int	ogg_opus_byterate (SF_PRIVATE *psf) ;
+static sf_count_t	ogg_opus_seek (SF_PRIVATE *psf, int mode, sf_count_t offset) ;
 static sf_count_t	ogg_opus_length (SF_PRIVATE *psf) ;
 static sf_count_t	ogg_opus_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len) ;
 static sf_count_t	ogg_opus_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len) ;
@@ -150,8 +154,8 @@ ogg_opus_open (SF_PRIVATE *psf)
 	psf->bytewidth = 1 ;
 	psf->blockwidth = psf->bytewidth * psf->sf.channels ;
 
-#if 0
 	psf->seek = ogg_opus_seek ;
+#if 0
 	psf->command = ogg_opus_command ;
 #endif
 	psf->byterate = ogg_opus_byterate ;
@@ -338,13 +342,11 @@ ogg_opus_read_header (SF_PRIVATE * psf, int log_data)
 	return 0 ;
 } /* ogg_opus_read_header */
 
-#if 0
 static int
 opus_rnull (SF_PRIVATE *UNUSED (psf), int samples, void *UNUSED (vptr), int UNUSED (off) , int channels, float *UNUSED (pcm))
 {
 	return samples * channels ;
 } /* opus_rnull */
-#endif
 
 static int
 opus_rshort (SF_PRIVATE *psf, int samples, void *vptr, int off, int channels, float *pcm)
@@ -463,6 +465,7 @@ ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func 
 				i += transfn (psf, samples, ptr, i, psf->sf.channels, pcm + opdata->pcm_pos * psf->sf.channels) ;
 				len -= samples ;
 				opdata->pcm_pos += samples ;
+				opdata->abs_pos += samples ;
 			}
 		}
 
@@ -503,6 +506,53 @@ ogg_opus_close (SF_PRIVATE * psf)
 	return 0 ;
 } /* ogg_opus_close */
 
+static sf_count_t
+ogg_opus_seek (SF_PRIVATE *psf, int UNUSED (mode), sf_count_t offset)
+{
+	OGG_PRIVATE *odata = (OGG_PRIVATE *) psf->container_data ;
+	OPUS_PRIVATE *opdata = (OPUS_PRIVATE *) psf->codec_data ;
+
+	if (odata == NULL || opdata == NULL)
+		return 0 ;
+
+	if (offset < 0)
+	{	psf->error = SFE_BAD_SEEK ;
+		return ((sf_count_t) -1) ;
+	} ;
+
+	if (psf->file.mode == SFM_READ)
+	{	sf_count_t target = offset - opdata->abs_pos ;
+
+		if (target < 0)
+		{	/* 12 to allow for OggS bit */
+			psf_fseek (psf, 12, SEEK_SET) ;
+			ogg_opus_read_header (psf, 0) ; /* Reset state */
+			opus_decoder_init (opdata->dec, 48000, opdata->head.channel_count) ;
+			opdata->pcm_len = 0 ;
+			opdata->pcm_pos = 0 ;
+			opdata->abs_pos = 0 ;
+			opdata->preskip_skipped = 0 ;
+			target = offset ;
+		} ;
+
+		while (target > 0)
+		{	sf_count_t m = target > 4096 ? 4096 : target ;
+
+			/*
+			**	Need to multiply by channels here because the seek is done in
+			**	terms of frames and the read function is done in terms of
+			**	samples.
+			*/
+			ogg_opus_read_sample (psf, (void *) NULL, m * psf->sf.channels, opus_rnull) ;
+
+			target -= m ;
+		} ;
+
+		return opdata->abs_pos ;
+	} ;
+
+	return 0 ;
+} /* ogg_opus_seek */
 
 static int
 ogg_opus_byterate (SF_PRIVATE *psf)
