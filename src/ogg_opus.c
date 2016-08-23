@@ -55,6 +55,7 @@ typedef struct
 	float *pcm ;
 	sf_count_t pcm_len ;
 	sf_count_t pcm_pos ;
+	sf_count_t preskip_skipped ;
 } OPUS_PRIVATE ;
 
 typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float *) ;
@@ -446,8 +447,15 @@ ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func 
 			int samples_read = opus_decode_float (opdata->dec, odata->opacket.packet, odata->opacket.bytes, opdata->pcm, OPUS_PCM_BUF_SIZE, 0) ;
 			if (samples_read > 0)
 			{
+				int preskip_needed ;
 				opdata->pcm_len = samples_read ;
 				opdata->pcm_pos = 0 ;
+				preskip_needed = opdata->head.pre_skip - opdata->preskip_skipped ;
+				if (preskip_needed > 0)
+				{
+					opdata->pcm_pos = opdata->pcm_len > preskip_needed ? preskip_needed : opdata->pcm_len ;
+					opdata->preskip_skipped += opdata->pcm_pos ;
+				}
 
 			start0:
 				samples = opdata->pcm_len - opdata->pcm_pos ;
