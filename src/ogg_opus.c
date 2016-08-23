@@ -42,25 +42,32 @@
 
 #include "ogg.h"
 
+#define OPUS_PCM_BUF_SIZE 5760
+
 typedef struct
 {	int32_t serialno ;
 
 	OpusDecoder * dec ;
 	OpusHead head ;
 	OpusTags tags ;
-	void * state ;
+
+	/* Unlike vorbis, opus decoder doesn't hide the framing from us, so we need to handle it */
+	float *pcm ;
+	sf_count_t pcm_len ;
+	sf_count_t pcm_pos ;
 } OPUS_PRIVATE ;
 
-typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float **) ;
+typedef int convert_func (SF_PRIVATE *psf, int, void *, int, int, float *) ;
 
 static int	ogg_opus_read_header (SF_PRIVATE * psf, int log_data) ;
 static int	ogg_opus_close (SF_PRIVATE *psf) ;
 static int	ogg_opus_byterate (SF_PRIVATE *psf) ;
 static sf_count_t	ogg_opus_length (SF_PRIVATE *psf) ;
-//static sf_count_t	ogg_opus_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len) ;
-//static sf_count_t	ogg_opus_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len) ;
-//static sf_count_t	ogg_opus_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len) ;
-//static sf_count_t	ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func *transfn) ;
+static sf_count_t	ogg_opus_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len) ;
+static sf_count_t	ogg_opus_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len) ;
+static sf_count_t	ogg_opus_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len) ;
+static sf_count_t	ogg_opus_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t len) ;
+static sf_count_t	ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func *transfn) ;
 
 typedef struct
 {	int id ;
@@ -105,19 +112,25 @@ ogg_opus_open (SF_PRIVATE *psf)
 		if ((error = ogg_opus_read_header (psf, 1)))
 			return error ;
 
-#if 0
+		oopus->dec = opus_decoder_create (48000, oopus->head.channel_count, &error) ;
+		if (error)
+			return error ;
+
+		oopus->pcm = calloc (OPUS_PCM_BUF_SIZE * oopus->head.channel_count, sizeof (float)) ;
+
 		psf->read_short		= ogg_opus_read_s ;
 		psf->read_int		= ogg_opus_read_i ;
 		psf->read_float		= ogg_opus_read_f ;
 		psf->read_double	= ogg_opus_read_d ;
-#endif
 		psf->sf.frames		= ogg_opus_length (psf) ;
-		} ;
+	} ;
 
 	psf->codec_close = ogg_opus_close ;
 
 	if (psf->file.mode == SFM_WRITE)
 	{
+		psf_log_printf (psf, "Opus file writing is not yet implemented.\n") ;
+		return SFE_UNIMPLEMENTED ;
 #if 0
 		/* Set the default oopus quality here. */
 		vdata->quality = 0.4 ;
@@ -131,7 +144,7 @@ ogg_opus_open (SF_PRIVATE *psf)
 
 		psf->sf.frames = SF_COUNT_MAX ; /* Unknown really */
 		psf->strings.flags = SF_STR_ALLOW_START ;
-		} ;
+	} ;
 
 	psf->bytewidth = 1 ;
 	psf->blockwidth = psf->bytewidth * psf->sf.channels ;
@@ -324,11 +337,160 @@ ogg_opus_read_header (SF_PRIVATE * psf, int log_data)
 	return 0 ;
 } /* ogg_opus_read_header */
 
+#if 0
+static int
+opus_rnull (SF_PRIVATE *UNUSED (psf), int samples, void *UNUSED (vptr), int UNUSED (off) , int channels, float *UNUSED (pcm))
+{
+	return samples * channels ;
+} /* opus_rnull */
+#endif
+
+static int
+opus_rshort (SF_PRIVATE *psf, int samples, void *vptr, int off, int channels, float *pcm)
+{
+	short *ptr = (short*) vptr + off ;
+	int i = 0 ;
+
+	if (psf->float_int_mult)
+	{
+		float inverse = 1.0 / psf->float_max ;
+		for (i = 0 ; i < channels * samples ; i++)
+		{
+			float tmp = (pcm [i] * inverse) * 32767.0f ;
+			ptr [i] = lrintf (tmp) ;
+		}
+	}
+	else
+	{
+		for (i = 0 ; i < channels * samples ; i++)
+		{
+			float tmp = pcm [i] * 32767.0f ;
+			ptr [i] = lrintf (tmp) ;
+		}
+	}
+	return i ;
+} /* opus_rshort */
+
+static int
+opus_rint (SF_PRIVATE *psf, int samples, void *vptr, int off, int channels, float *pcm)
+{
+	int *ptr = (int*) vptr + off ;
+	int i = 0 ;
+
+	if (psf->float_int_mult)
+	{
+		float inverse = 1.0 / psf->float_max ;
+		for (i = 0 ; i < channels * samples ; i++)
+		{
+			float tmp = (pcm [i] * inverse) * 2147483647.0f ;
+			ptr [i] = lrintf (tmp) ;
+		}
+	}
+	else
+	{
+		for (i = 0 ; i < channels * samples ; i++)
+		{
+			float tmp = pcm [i] * 2147483647.0f ;
+			ptr [i] = lrintf (tmp) ;
+		}
+	}
+	return i ;
+} /* opus_rint */
+
+static int
+opus_rfloat (SF_PRIVATE *UNUSED (psf), int samples, void *vptr, int off, int channels, float *pcm)
+{
+	float *ptr = (float*) vptr + off ;
+	int i = 0 ;
+	for (i = 0 ; i < channels * samples ; i++)
+		ptr [i] = pcm [i] ;
+	return i ;
+} /* opus_rfloat */
+
+static int
+opus_rdouble (SF_PRIVATE *UNUSED (psf), int samples, void *vptr, int off, int channels, float *pcm)
+{
+	double *ptr = (double*) vptr + off ;
+	int i = 0 ;
+	for (i = 0 ; i < channels * samples ; i++)
+		ptr [i] = pcm [i] ;
+	return i ;
+} /* opus_rdouble */
+
+static sf_count_t
+ogg_opus_read_sample (SF_PRIVATE *psf, void *ptr, sf_count_t lens, convert_func *transfn)
+{
+
+	OPUS_PRIVATE *opdata = psf->codec_data ;
+	OGG_PRIVATE *odata = psf->container_data ;
+	int len, samples, i = 0 ;
+	float *pcm = opdata->pcm ;
+
+	len = lens / psf->sf.channels ;
+
+	goto start0 ;
+
+	while (i < lens)
+	{
+		int pages_read = ogg_opus_get_next_page (psf, &odata->osync, &odata->opage) ;
+		if (pages_read == 0)
+		{
+			// file ended prematurely
+			odata->eos = 1 ;
+			break ;
+		}
+
+		ogg_stream_pagein (&odata->ostream, &odata->opage) ;
+		while (len > 0 && ogg_stream_packetout (&odata->ostream, &odata->opacket) > 0)
+		{
+			int samples_read = opus_decode_float (opdata->dec, odata->opacket.packet, odata->opacket.bytes, opdata->pcm, OPUS_PCM_BUF_SIZE, 0) ;
+			if (samples_read > 0)
+			{
+				opdata->pcm_len = samples_read ;
+				opdata->pcm_pos = 0 ;
+
+			start0:
+				samples = opdata->pcm_len - opdata->pcm_pos ;
+				samples = samples > len ? len : samples ;
+				i += transfn (psf, samples, ptr, i, psf->sf.channels, pcm + opdata->pcm_pos * psf->sf.channels) ;
+				len -= samples ;
+				opdata->pcm_pos += samples ;
+			}
+		}
+
+		if (ogg_page_eos (&odata->opage)) odata->eos = 1 ;
+	}
+
+	return i ;
+} /* vorbis_read_sample */
+
+static sf_count_t
+ogg_opus_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t lens)
+{	return ogg_opus_read_sample (psf, (void*) ptr, lens, opus_rshort) ;
+} /* vorbis_read_s */
+
+static sf_count_t
+ogg_opus_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t lens)
+{	return ogg_opus_read_sample (psf, (void*) ptr, lens, opus_rint) ;
+} /* vorbis_read_i */
+
+static sf_count_t
+ogg_opus_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t lens)
+{	return ogg_opus_read_sample (psf, (void*) ptr, lens, opus_rfloat) ;
+} /* vorbis_read_f */
+
+static sf_count_t
+ogg_opus_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t lens)
+{	return ogg_opus_read_sample (psf, (void*) ptr, lens, opus_rdouble) ;
+} /* vorbis_read_d */
+
+
 static int
 ogg_opus_close (SF_PRIVATE * psf)
 {
 	OPUS_PRIVATE *opdata = (OPUS_PRIVATE *) psf->codec_data ;
 	opus_tags_clear (&opdata->tags) ;
+	opus_decoder_destroy (opdata->dec) ;
 
 	return 0 ;
 } /* ogg_opus_close */
